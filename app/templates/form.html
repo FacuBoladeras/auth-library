@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h2>{{ title }}</h2>
+        {% if error %}
+            <p style="color: red;">{{ error }}</p>
+        {% endif %}
+        <form method="post" action="{{ action_url }}">
+            <label for="username">Username:</label>
+            <input type="text" id="username" name="username" required>
+            <label for="email">Email:</label>
+            <input type="email" id="email" name="email" {% if title == "Login" %}style="display: none;"{% endif %}>
+            <label for="password">Password:</label>
+            <input type="password" id="password" name="password" required>
+            <button type="submit">{{ button_text }}</button>
+        </form>
+        {% if title == "Login" %}
+            <p>Don't have an account? <a href="/auth/register">Register here</a></p>
+        {% else %}
+            <p>Already have an account? <a href="/auth/login">Login here</a></p>
+        {% endif %}
+    </div>
+</body>
+</html>
