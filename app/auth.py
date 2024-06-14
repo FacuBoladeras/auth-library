@@ -11,6 +11,7 @@ from .config import settings
 import requests 
 from passlib.context import CryptContext
 from fastapi.templating import Jinja2Templates
+import httpx
 
 router = APIRouter()
 
@@ -34,15 +35,14 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
     except JWTError:
         raise credentials_exception
-    try:
-        user = User.get(User.username == username)
-    except DoesNotExist:
+    user = User.get(User.username == username)
+    if user is None:
         raise credentials_exception
     return user
 
@@ -54,7 +54,7 @@ def verify_token(token: str = Depends(oauth2_scheme)):
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
@@ -99,13 +99,13 @@ async def login(request: Request, username: str = Form(...), password: str = For
             "error": "Invalid username or password"
         })
     
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(data={"sub": user.username}, expires_delta=access_token_expires)
     
-    response = RedirectResponse(url="/auth/books", status_code=status.HTTP_302_FOUND)
+    response = RedirectResponse(url="/auth/show_books", status_code=status.HTTP_302_FOUND)
     response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True)
-    
     return response
+   
 
 @router.get("/register", response_class=HTMLResponse)
 async def register_form(request: Request):
@@ -170,13 +170,42 @@ async def register_user(request: Request, username: str = Form(...), email: str 
         "message": "Registration successful. Please log in."
     })
 
+
 @router.get("/books", response_class=HTMLResponse)
-async def get_books(request: Request, current_user: User = Depends(get_current_user)):
+async def get_books(request: Request, current_user: User = Depends(verify_token)):
     try:
-        response = requests.get("http://localhost:8001/books/")
+        # Obtener el token de la cookie
+        token = request.cookies.get("access_token")
+        if not token:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+
+        # Eliminar "Bearer " del token
+        if token.startswith("Bearer "):
+            token = token[len("Bearer "):]
+
+        # Incluir el token en los encabezados de la solicitud a la API de libros
+        headers = {"Authorization": f"Bearer {token}"}
+        response = requests.get("http://localhost:8001/noauth/booksF/", headers=headers)
         response.raise_for_status()
         books = response.json()
     except requests.RequestException as e:
         raise HTTPException(status_code=500, detail="Could not fetch books from library API")
-    
+
     return templates.TemplateResponse("books.html", {"request": request, "books": books})
+
+
+
+@router.get("/show_books", response_class=HTMLResponse)
+async def show_books(request: Request):
+    async with httpx.AsyncClient() as client:
+        response = await client.get("http://localhost:8001/noauth/books/")
+        books = response.json()
+
+    # Print books to debug
+    print(books)
+
+    return templates.TemplateResponse("books.html", {
+        "request": request,
+        "title": "Books",
+        "books": books
+    })

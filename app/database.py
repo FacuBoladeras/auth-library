@@ -2,9 +2,9 @@ from peewee import MySQLDatabase
 from .config import settings
 
 db = MySQLDatabase(
-    settings.DB_NAME,
-    user=settings.DB_USER,
-    password=settings.DB_PASSWORD,
-    host=settings.DB_HOST,
-    port=settings.DB_PORT
+    settings.database_name,
+    user=settings.database_user,
+    password=settings.database_password,
+    host=settings.database_host,
+    port=settings.database_port
 )
