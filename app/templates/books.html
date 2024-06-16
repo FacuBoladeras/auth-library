@@ -1,16 +1,29 @@
-<!-- templates/books.html -->
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <title>{{ title }}</title>
+    <link rel="stylesheet" href="/static/books.css">
 </head>
 <body>
-    <h1>{{ title }}</h1>
-    <pre>{{ books }}</pre> <!-- Agrega esto para verificar la estructura de books -->
-    <ul>
-        {% for book in books %}
-            <li>{{ book.title }} by {{ book.author }}</li>
-        {% endfor %}
-    </ul>
+    <div class="container">
+        <h1>{{ title }}</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Author</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for book in books %}
+                <tr>
+                    <td>{{ book.title }}</td>
+                    <td>{{ book.author }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </body>
 </html>

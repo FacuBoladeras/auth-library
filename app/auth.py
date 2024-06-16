@@ -1,72 +1,27 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from jose import JWTError, jwt
 from peewee import DoesNotExist
 from datetime import timedelta
 from .schemas import UserCreate, Token, UserRead
 from .models import User
-from .utils import get_password_hash, verify_password, create_access_token
+from .utils import get_password_hash, verify_password, create_access_token, verify_token, hash_password, authenticate_user
 from .config import settings
 import requests 
 from passlib.context import CryptContext
 from fastapi.templating import Jinja2Templates
 import httpx
+from typing import List
+
 
 router = APIRouter()
 
 # Configura el contexto para bcrypt
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 templates = Jinja2Templates(directory="app/templates")
-
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_current_user(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    user = User.get(User.username == username)
-    if user is None:
-        raise credentials_exception
-    return user
-
-
-def verify_token(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    
-    try:
-        user = User.get(User.username == username)
-    except User.DoesNotExist:
-        raise credentials_exception
-
-    return user.username
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
@@ -171,41 +126,23 @@ async def register_user(request: Request, username: str = Form(...), email: str 
     })
 
 
-@router.get("/books", response_class=HTMLResponse)
-async def get_books(request: Request, current_user: User = Depends(verify_token)):
-    try:
-        # Obtener el token de la cookie
-        token = request.cookies.get("access_token")
-        if not token:
-            raise HTTPException(status_code=401, detail="Not authenticated")
-
-        # Eliminar "Bearer " del token
-        if token.startswith("Bearer "):
-            token = token[len("Bearer "):]
-
-        # Incluir el token en los encabezados de la solicitud a la API de libros
-        headers = {"Authorization": f"Bearer {token}"}
-        response = requests.get("http://localhost:8001/noauth/booksF/", headers=headers)
-        response.raise_for_status()
-        books = response.json()
-    except requests.RequestException as e:
-        raise HTTPException(status_code=500, detail="Could not fetch books from library API")
-
-    return templates.TemplateResponse("books.html", {"request": request, "books": books})
-
-
-
 @router.get("/show_books", response_class=HTMLResponse)
-async def show_books(request: Request):
-    async with httpx.AsyncClient() as client:
-        response = await client.get("http://localhost:8001/noauth/books/")
-        books = response.json()
-
-    # Print books to debug
-    print(books)
-
-    return templates.TemplateResponse("books.html", {
-        "request": request,
-        "title": "Books",
-        "books": books
-    })
+async def show_books_html(request: Request):
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get("http://localhost:8001/auth/GetBooksJ/")
+            response.raise_for_status()  # Asegurarse de que se lanza una excepción en caso de un código de estado HTTP de error
+            books = response.json()["books"]
+        
+        # Renderizar el HTML con los datos de los libros
+        return templates.TemplateResponse("books.html", {
+            "request": request,
+            "title": "Books",
+            "books": books
+        })
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail="Error al obtener los libros de la API de la biblioteca")
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=500, detail=f"Error de conexión: {exc}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
