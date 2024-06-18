@@ -1,23 +1,16 @@
-from passlib.context import CryptContext
-from jose import JWTError, jwt
 from datetime import datetime, timedelta
-from .config import settings
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from fastapi.templating import Jinja2Templates
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from peewee import DoesNotExist
 from .models import User
-
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-templates = Jinja2Templates(directory="app/templates")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+from .config import settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/auth/token")
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-
-def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -33,8 +26,20 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
     return encoded_jwt
 
+def get_user(username: str) -> User:
+    try:
+        user = User.get(User.username == username)
+        return user
+    except DoesNotExist:
+        return None
 
-def get_current_user(token: str = Depends(oauth2_scheme)):
+def authenticate_user(username: str, password: str) -> User:
+    user = get_user(username)
+    if user and verify_password(password, user.password):
+        return user
+    return None
+
+def verify_token(token: str = Depends(oauth2_scheme)) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -47,37 +52,16 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
             raise credentials_exception
     except JWTError:
         raise credentials_exception
-    user = User.get(User.username == username)
+
+    user = get_user(username)
     if user is None:
         raise credentials_exception
+
     return user
 
-def verify_token(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    
-    try:
-        user = User.get(User.username == username)
-    except User.DoesNotExist:
-        raise credentials_exception
 
-    return user.username
-
-def authenticate_user(username: str, password: str):
-    try:
-        user = User.get(User.username == username)
-        if not verify_password(password, user.hashed_password):
-            return None
-        return user
-    except User.DoesNotExist:
-        return None
+async def get_current_active_user(current_user: User = Depends(verify_token)):
+    # Asume que User tiene un atributo 'disabled' para este ejemplo
+    if current_user.disabled:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user

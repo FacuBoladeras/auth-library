@@ -4,8 +4,18 @@ from fastapi.templating import Jinja2Templates
 from app.auth import router as auth_router
 from app.database import db
 from app.models import User
+from fastapi.middleware.cors import CORSMiddleware
+
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Cambia esto según sea necesario
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Montar archivos estáticos
 app.mount("/static", StaticFiles(directory="app/static"), name="static")

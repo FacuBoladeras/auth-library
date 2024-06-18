@@ -1,27 +1,40 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Form
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
-from jose import JWTError, jwt
-from peewee import DoesNotExist
-from datetime import timedelta
-from .schemas import UserCreate, Token, UserRead
-from .models import User
-from .utils import get_password_hash, verify_password, create_access_token, verify_token, hash_password, authenticate_user
-from .config import settings
-import requests 
-from passlib.context import CryptContext
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-import httpx
+from datetime import timedelta
 from typing import List
-
+import requests
+import httpx
+from fastapi.security import OAuth2PasswordRequestForm
+from .models import User
+from .utils import (
+    hash_password, verify_password, create_access_token,
+    authenticate_user, get_current_active_user
+)
+from .schemas import Token, UserCreate, UserRead, UserLogin  # Actualiza las importaciones
+from .config import settings
 
 router = APIRouter()
-
-# Configura el contexto para bcrypt
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 templates = Jinja2Templates(directory="app/templates")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
+@router.post("/auth/token", response_model=Token)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@router.get("/users/me/", response_model=UserRead)
+async def read_users_me(current_user: User = Depends(get_current_active_user)):
+    return UserRead(username=current_user.username, email=current_user.email)
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
@@ -34,9 +47,8 @@ async def login_form(request: Request):
 
 @router.post("/login", response_class=HTMLResponse)
 async def login(request: Request, username: str = Form(...), password: str = Form(...)):
-    try:
-        user = User.get(User.username == username)
-    except User.DoesNotExist:
+    user = authenticate_user(username, password)
+    if not user:
         return templates.TemplateResponse("form.html", {
             "request": request,
             "title": "Login",
@@ -44,23 +56,13 @@ async def login(request: Request, username: str = Form(...), password: str = For
             "button_text": "Login",
             "error": "Invalid username or password"
         })
-    
-    if not verify_password(password, user.password):
-        return templates.TemplateResponse("form.html", {
-            "request": request,
-            "title": "Login",
-            "action_url": "/auth/login",
-            "button_text": "Login",
-            "error": "Invalid username or password"
-        })
-    
+
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(data={"sub": user.username}, expires_delta=access_token_expires)
-    
+
     response = RedirectResponse(url="/auth/show_books", status_code=status.HTTP_302_FOUND)
     response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True)
     return response
-   
 
 @router.get("/register", response_class=HTMLResponse)
 async def register_form(request: Request):
@@ -91,8 +93,8 @@ async def register_user(request: Request, username: str = Form(...), email: str 
         })
 
     hashed_password = hash_password(password)
-    db_user = User.create(username=username, email=email, password=hashed_password)
-    
+    User.create(username=username, email=email, password=hashed_password)
+
     library_api_url = "http://localhost:8001/customerP/"
     response = requests.post(library_api_url, json={
         "username": username,
@@ -116,7 +118,7 @@ async def register_user(request: Request, username: str = Form(...), email: str 
             "button_text": "Register",
             "error": "Could not create customer in library"
         })
-    
+
     return templates.TemplateResponse("form.html", {
         "request": request,
         "title": "Login",
@@ -125,16 +127,14 @@ async def register_user(request: Request, username: str = Form(...), email: str 
         "message": "Registration successful. Please log in."
     })
 
-
 @router.get("/show_books", response_class=HTMLResponse)
 async def show_books_html(request: Request):
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get("http://localhost:8001/auth/GetBooksJ/")
-            response.raise_for_status()  # Asegurarse de que se lanza una excepción en caso de un código de estado HTTP de error
+            response.raise_for_status()
             books = response.json()["books"]
-        
-        # Renderizar el HTML con los datos de los libros
+
         return templates.TemplateResponse("books.html", {
             "request": request,
             "title": "Books",
@@ -146,3 +146,13 @@ async def show_books_html(request: Request):
         raise HTTPException(status_code=500, detail=f"Error de conexión: {exc}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/users/{username}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(username: str):
+    user = User.get_or_none(User.username == username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.delete_instance()
+
+    return {"detail": "User deleted successfully"}

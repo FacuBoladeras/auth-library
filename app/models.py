@@ -9,3 +9,7 @@ class User(BaseModel):
     username = CharField(unique=True)
     email = CharField(unique=True)
     password = CharField()
+
+
+class UserInDB(User):
+    hashed_password: str
