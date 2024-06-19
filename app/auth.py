@@ -6,13 +6,16 @@ from typing import List
 import requests
 import httpx
 from fastapi.security import OAuth2PasswordRequestForm
-from .models import User
+from .models import User, UserDeleteRequest
 from .utils import (
     hash_password, verify_password, create_access_token,
     authenticate_user, get_current_active_user
 )
 from .schemas import Token, UserCreate, UserRead, UserLogin  # Actualiza las importaciones
 from .config import settings
+from pydantic import BaseModel
+
+
 
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
@@ -57,8 +60,15 @@ async def login(request: Request, username: str = Form(...), password: str = For
             "error": "Invalid username or password"
         })
 
-    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-    access_token = create_access_token(data={"sub": user.username}, expires_delta=access_token_expires)
+    # Obtener el token de acceso haciendo una solicitud POST a /auth/token
+    async with httpx.AsyncClient() as client:
+        token_response = await client.post(
+            "http://localhost:8000/auth/auth/token",
+            data={"username": username, "password": password}
+        )
+        token_response.raise_for_status()
+        token_data = Token(**token_response.json())
+        access_token = token_data.access_token
 
     response = RedirectResponse(url="/auth/show_books", status_code=status.HTTP_302_FOUND)
     response.set_cookie(key="access_token", value=f"Bearer {access_token}", httponly=True)
@@ -130,10 +140,19 @@ async def register_user(request: Request, username: str = Form(...), email: str 
 @router.get("/show_books", response_class=HTMLResponse)
 async def show_books_html(request: Request):
     try:
+        # Obtener el token de la cookie
+        token = request.cookies.get("access_token")
+        print(token)
+        if not token:
+            raise HTTPException(status_code=401, detail="No access token found")
+
+        # Extraer solo el token sin el prefijo "Bearer "
+        token_value = token.replace("Bearer ", "")
+        
         async with httpx.AsyncClient() as client:
-            response = await client.get("http://localhost:8001/auth/GetBooksJ/")
-            response.raise_for_status()
-            books = response.json()["books"]
+            books_response = await client.get(f"http://localhost:8001/auth/GetBooksJ/?token={token_value}")
+            books_response.raise_for_status()
+            books = books_response.json()
 
         return templates.TemplateResponse("books.html", {
             "request": request,
@@ -147,9 +166,13 @@ async def show_books_html(request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/users/{username}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(username: str):
-    user = User.get_or_none(User.username == username)
+
+class UserDeleteRequest(BaseModel):
+    username: str
+
+@router.delete("/users/", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(request: UserDeleteRequest):
+    user = User.get_or_none(User.username == request.username)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
