@@ -26,3 +26,9 @@ class User(BaseModel):
 
     class Config:
         from_attributes = True
+        
+class UserDeleteRequest(BaseModel):
+    username: str
+class UserUpdateRequest(BaseModel):
+    username: str = None
+    email: EmailStr = None

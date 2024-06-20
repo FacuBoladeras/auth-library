@@ -11,7 +11,7 @@ from .utils import (
     hash_password, verify_password, create_access_token,
     authenticate_user, get_current_active_user
 )
-from .schemas import Token, UserCreate, UserRead, UserLogin  # Actualiza las importaciones
+from .schemas import Token, UserCreate, UserRead, UserLogin, UserUpdateRequest # Actualiza las importaciones
 from .config import settings
 from pydantic import BaseModel
 
@@ -35,9 +35,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-@router.get("/users/me/", response_model=UserRead)
-async def read_users_me(current_user: User = Depends(get_current_active_user)):
-    return UserRead(username=current_user.username, email=current_user.email)
+
 
 @router.get("/login", response_class=HTMLResponse)
 async def login_form(request: Request):
@@ -167,15 +165,31 @@ async def show_books_html(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class UserDeleteRequest(BaseModel):
-    username: str
 
-@router.delete("/users/", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(request: UserDeleteRequest):
-    user = User.get_or_none(User.username == request.username)
+
+
+@router.delete("/users/{username}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(username: str):
+    user = User.get_or_none(User.username == username)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     user.delete_instance()
 
     return {"detail": "User deleted successfully"}
+
+
+
+@router.put("/users/{username}", status_code=status.HTTP_204_NO_CONTENT)
+async def update_user(username: str, user_update: UserUpdateRequest):
+    user = User.get_or_none(User.username == username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user_update.username:
+        user.username = user_update.username
+    if user_update.email:
+        user.email = user_update.email
+    user.save()
+
+    return {"detail": "User updated successfully"}
