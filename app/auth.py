@@ -20,7 +20,7 @@ from pydantic import BaseModel
 router = APIRouter()
 templates = Jinja2Templates(directory="app/templates")
 
-@router.post("/auth/token", response_model=Token)
+@router.post("/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     user = authenticate_user(form_data.username, form_data.password)
     if not user:
@@ -61,7 +61,7 @@ async def login(request: Request, username: str = Form(...), password: str = For
     # Obtener el token de acceso haciendo una solicitud POST a /auth/token
     async with httpx.AsyncClient() as client:
         token_response = await client.post(
-            "http://localhost:8000/auth/auth/token",
+            "http://localhost:8000/auth/token",
             data={"username": username, "password": password}
         )
         token_response.raise_for_status()
